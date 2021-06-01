@@ -1,0 +1,107 @@
+---
+title: "Practical Machine Learning: Course Project"
+author: "Matt Brice"
+date: "6/1/2021"
+output: html_document
+---
+
+### Overview
+In this project we will use data from accelerometers on the belt, forearm, arm,
+and dumbell of 6 participants to create a model to predict the manner in which 
+they did the exercise. We will then use our model to predict 20 test cases.
+
+### Load libraries
+```{r warning=FALSE, message=FALSE}
+library(caret)
+library(parallel)
+library(doParallel)
+```
+
+### Reading and cleaning the data
+Read in the csv data.
+```{r readCsv, cache=TRUE}
+# Read the data
+trainData <- read.csv("pml-training.csv", na.strings=c("NA", ""))
+testData  <- read.csv("pml-testing.csv", na.strings=c("NA", ""))
+```
+
+Remove columns with NA data and first 5 columns of metadata.
+```{r removeNa, cache=TRUE}
+# Remove columns with missing data
+trainClean <- trainData[, colSums(is.na(trainData)) == 0][, -(1:5)]
+testClean <- testData[, colSums(is.na(testData)) == 0][, -(1:5)]
+```
+
+Split dataset into a training and test set for validation.
+```{r splitData, cache=TRUE}
+# Split training set into a train and test set for validation
+set.seed(711711)
+inTrain  <- createDataPartition(trainClean$classe, p=0.6, list=FALSE)
+training <- trainClean[inTrain, ]
+testing  <- trainClean[-inTrain, ]
+```
+
+### Model fit
+We create a random forest model and a generalized boosted regression model to
+see which is more accurate using our training set for training the model and our
+test set for validation.
+
+#### Random Forest Model
+We start with a random forest model using 5-fold cross-validation. We also make
+use of the parallel libraries to improve processing time using a multi-core 
+processor.
+```{r rfModel, cache=TRUE}
+# Detect number of processing cores and create cluster
+cluster <- makeCluster(detectCores() - 1)
+registerDoParallel(cluster)
+# Model fit: Random Forest
+controlRF <- trainControl(method="cv", number=5, verboseIter=FALSE, allowParallel=TRUE)
+fitRF <- train(classe ~ ., data=training, method="rf", trControl=controlRF)
+# Stop cluster
+stopCluster(cluster)
+registerDoSEQ()
+```
+
+```{r rfPredict, cache=TRUE}
+# Prediction and view results
+predictRF <- predict(fitRF, testing)
+matrixRF <- confusionMatrix(predictRF, factor(testing$classe))
+matrixRF
+```
+We see that the accuracy is 99.75%, which means our predicted out of sample
+error is about 0.25% which is extremely accurate.
+
+
+#### Generalized Boosted Regression Model
+Now we create a generalized boosted regression model to see how accurate it is
+compared to the random forest.
+```{r gbmModel, cache=TRUE}
+# Detect number of processing cores and create cluster
+cluster <- makeCluster(detectCores() - 1)
+registerDoParallel(cluster)
+# Model fit: Generalized Boosted Regression
+controlGBM <- trainControl(method="repeatedcv", number=5, repeats=1, verboseIter=FALSE, allowParallel=TRUE)
+fitGBM  <- train(classe ~ ., data=training, method="gbm", trControl=controlGBM, verbose=FALSE)
+# Stop cluster
+stopCluster(cluster)
+registerDoSEQ()
+```
+
+```{r gbmPredict, cache=TRUE}
+# Prediction and view results
+predictGBM <- predict(fitGBM, testing)
+matrixGBM <- confusionMatrix(predictGBM, factor(testing$classe))
+matrixGBM
+```
+We see that the accuracy is 98.71%, which means our predicted out of sample
+error is about 1.29% which is also quite accurate. However the random forest 
+model was more accurate so we will move forward with the random forest model.
+
+#### Predictions for test set / quiz
+As the random forest is more accurate, that is what we will use to predict the
+test cases for the quiz.
+```{r quizPredict, cache=TRUE}
+# Prediction for quiz
+predictTestRF <- predict(fitRF, newdata=testClean)
+predictTestRF
+```
